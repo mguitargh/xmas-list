@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Family Christmas Lists</title>
+<style>
+  :root { --bg:#f6f4ef; --card:#fff; --text:#1f2430; --muted:#6b7280; --line:#e5e1d8; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  header { background:#16a34a; color:#fff; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  header h1 { font-size:1.15rem; margin:0; }
+  header .who { display:flex; align-items:center; gap:8px; font-size:.95rem; }
+  .dot { width:14px; height:14px; border-radius:50%; display:inline-block; border:2px solid #fff; }
+  main { max-width:760px; margin:0 auto; padding:14px; }
+  .notice { background:#fff7e0; border:1px solid #f1d98a; color:#6b4e00; border-radius:10px; padding:10px 12px; font-size:.9rem; margin-bottom:12px; }
+  nav { display:flex; gap:6px; margin-bottom:14px; }
+  nav button { flex:1; padding:10px 6px; border:1px solid var(--line); background:var(--card); border-radius:10px; font:inherit; cursor:pointer; }
+  nav button.active { background:var(--text); color:#fff; border-color:var(--text); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; margin-bottom:14px; overflow:hidden; }
+  .card h2 { margin:0; padding:10px 14px; font-size:1.05rem; }
+  .card .body { padding:6px 10px 10px; }
+  .item { display:flex; align-items:flex-start; gap:10px; padding:9px 10px; margin:6px 0; border-radius:8px; border:1px solid var(--line); }
+  .item input[type=checkbox] { width:20px; height:20px; margin-top:2px; flex:none; }
+  .item .txt { flex:1; min-width:0; word-break:break-word; }
+  .item .note { font-size:.85rem; opacity:.8; }
+  .item .by { font-size:.8rem; font-weight:600; margin-top:2px; }
+  .item a { color:inherit; text-decoration:underline; }
+  .item.bought { border-color:transparent; }
+  .item.split { display:block; padding:6px; border:0; }
+  .splitbox { background:rgba(255,255,255,.94); color:var(--text); border-radius:6px; padding:8px 10px; }
+  .splitbox a { color:inherit; }
+  .chip { display:inline-block; padding:2px 9px; border-radius:999px; font-size:.8rem; font-weight:600; margin:4px 4px 2px 0; }
+  .splitlbl { display:inline-flex; align-items:center; gap:5px; font-size:.85rem; margin-top:4px; cursor:pointer; }
+  .splitlbl input[type=checkbox] { width:16px !important; height:16px !important; margin:0 !important; }
+  .srow { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:4px; }
+  .mini { padding:5px 10px; font-size:.85rem; border-radius:6px; border:1px solid var(--line); background:#fff; cursor:pointer; font-family:inherit; }
+  .empty { color:var(--muted); padding:8px 10px; font-size:.95rem; }
+  input[type=text], input[type=password] { font:inherit; padding:10px; border:1px solid var(--line); border-radius:8px; width:100%; }
+  textarea { font:inherit; padding:10px; border:1px solid var(--line); border-radius:8px; width:100%; resize:vertical; }
+  button.primary { background:#16a34a; color:#fff; border:0; padding:10px 16px; border-radius:8px; font:inherit; cursor:pointer; }
+  button.primary:disabled { opacity:.5; }
+  button.danger { background:none; border:0; color:#b91c1c; cursor:pointer; font-size:1.1rem; padding:0 4px; }
+  button.link { background:none; border:0; color:#fff; text-decoration:underline; cursor:pointer; font:inherit; }
+  .row { display:flex; gap:8px; margin-bottom:8px; }
+  .total { display:flex; justify-content:space-between; padding:8px 14px; font-weight:600; border-top:1px solid var(--line); background:#faf9f5; }
+  .sec { margin:14px 0 6px; font-weight:600; }
+  .preview { border:1px dashed var(--line); border-radius:8px; padding:8px 10px; background:#faf9f5; }
+  .pitem { padding:5px 0; border-bottom:1px solid var(--line); word-break:break-word; font-size:.95rem; }
+  .pitem:last-of-type { border-bottom:0; }
+  .login { max-width:420px; margin:10vh auto; padding:20px; background:var(--card); border-radius:14px; border:1px solid var(--line); }
+  .login h1 { margin-top:0; }
+  .swatches { display:flex; flex-wrap:wrap; gap:10px; margin:12px 0; }
+  .swatch { width:38px; height:38px; border-radius:50%; border:3px solid transparent; cursor:pointer; }
+  .swatch.sel { border-color:#111; }
+  .swatch.taken { opacity:.25; cursor:not-allowed; }
+  .hint { color:var(--muted); font-size:.85rem; }
+  .err { color:#b91c1c; margin:8px 0; }
+  #toast { display:none; position:fixed; left:50%; bottom:18px; transform:translateX(-50%); background:#1f2430; color:#fff; padding:10px 16px; border-radius:999px; z-index:50; font-size:.9rem; max-width:90vw; text-align:center; }
+  body.working #toast { display:block; }
+  body.working #root { pointer-events:none; opacity:.65; }
+</style>
+</head>
+<body>
+<div id="root"><p style="padding:20px">Loading… (this can take a few seconds)</p></div>
+<div id="toast"></div>
+
+<script>
+/* ============ CONFIG ============ */
+const API_URL = "https://script.google.com/macros/s/AKfycbysMF7R26oEDjPVena-WNtK6r3xf7A0hs3K8RcLpAs80QZiFOcRRtzJt08g_DTVpbMdYw/exec";   // ends in /exec
+const SALT = "xmas-family-v1";                                // any string; keep it the same forever
+/* ================================== */
+
+const PALETTE = [
+  ["#3b82f6","Blue"],["#22c55e","Green"],["#ef4444","Red"],["#f97316","Orange"],
+  ["#a855f7","Purple"],["#ec4899","Pink"],["#14b8a6","Teal"],["#eab308","Yellow"],
+  ["#92400e","Brown"],["#6366f1","Indigo"],["#64748b","Slate"],["#84cc16","Lime"]
+];
+
+const root = document.getElementById("root");
+let me = null, members = {}, items = [], cryptoKey = null, passcode = "", checkBlob = "";
+let view = "others", pendingName = null, pendingColor = null, loginErr = "", busy = false;
+let working = false, importText = "", importDraft = null;
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const keyOf = n => n.trim().toLowerCase().replace(/\s+/g," ");
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2));
+function textOn(hex){ const n=parseInt(hex.slice(1),16), r=n>>16, g=(n>>8)&255, b=n&255; return (0.299*r+0.587*g+0.114*b)>160 ? "#111":"#fff"; }
+
+/* ---------- links & pasted-list parsing ---------- */
+const URL_RE = /https?:\/\/[^\s<>"]*[^\s<>".,;:!?)\]]/gi;
+const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./,""); } catch(e) { return u; } };
+function linkify(t) {
+  const s = String(t ?? "").trim();
+  const m = s.match(URL_RE);
+  if (!m) return esc(s);
+  if (m.length === 1 && m[0] === s)
+    return `<a href="${esc(s)}" target="_blank" rel="noopener noreferrer">${esc(hostOf(s))}</a> <span class="note">${esc(s.length>60 ? s.slice(0,57)+"…" : s)}</span>`;
+  let out = "", last = 0;
+  s.replace(URL_RE, (u, idx) => {
+    out += esc(s.slice(last, idx)) + `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(hostOf(u))}</a>`;
+    last = idx + u.length; return u;
+  });
+  return out + esc(s.slice(last));
+}
+// Turns pasted text (e.g. copied from Word) into one item per entry.
+function parseList(raw, existing) {
+  const bullet = /^(?:[-*•▪◦●○‣·]|\d{1,3}[.)]|\(\d{1,3}\)|\[[ xX]?\]|[☐☑✓✔])\s+/;
+  const lines = String(raw || "").replace(/[\u200b\ufeff]/g, "").split(/\r?\n|\u2028|\u2029/)
+    .map(l => l.trim().replace(bullet, "").replace(/\t+/g, " – ").replace(/\s+/g, " ").trim()
+      .replace(/(^|\s)(www\.\S+)/gi, "$1https://$2"))
+    .filter(Boolean);
+  const hasUrl = l => { URL_RE.lastIndex = 0; return URL_RE.test(l); };
+  const urlOnly = l => hasUrl(l) && l.replace(URL_RE, "").replace(/[\s\-–—:|,()]/g, "") === "";
+  const seen = new Set((existing || []).map(x => x.trim().toLowerCase()));
+  const out = []; let skipped = 0;
+  for (let i = 0; i < lines.length; i++) {
+    let t = lines[i];
+    if (!hasUrl(t) && i + 1 < lines.length && urlOnly(lines[i + 1])) { t = t + " – " + lines[i + 1]; i++; }
+    t = t.replace(/(https?:\/\/\S*[^\s.,;:!?)\]])[.,;:]+$/i, "$1").slice(0, 500);
+    const k = t.toLowerCase();
+    if (t.length < 2 || seen.has(k)) { skipped++; continue; }
+    seen.add(k); out.push(t);
+  }
+  const over = Math.max(0, out.length - 100);
+  return { items: out.slice(0, 100), skipped, over };
+}
+
+/* ---------- API ---------- */
+async function api(action, body = {}) {
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },   // avoids CORS preflight
+    body: JSON.stringify({ action, me: me ? me.key : "", ...body })
+  });
+  const data = await res.json();
+  if (!data.ok && !data.conflict && action !== "join") throw new Error(data.error || "Server error");
+  return data;
+}
+
+/* ---------- busy guard: one action at a time ---------- */
+function setToast(m) { const t = document.getElementById("toast"); if (t) t.textContent = "⏳ " + m; }
+async function guard(fn, msg) {
+  if (working) return false;
+  working = true; document.body.classList.add("working"); setToast(msg || "Saving… please wait");
+  try { await fn(); } finally { working = false; document.body.classList.remove("working"); }
+  return true;
+}
+
+/* ---------- crypto (AES-GCM, key from family passcode) ---------- */
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function deriveKey(pass) {
+  const e = new TextEncoder();
+  const base = await crypto.subtle.importKey("raw", e.encode(pass), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name:"PBKDF2", salt:e.encode(SALT), iterations:150000, hash:"SHA-256" },
+    base, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]);
+}
+async function enc(obj) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name:"AES-GCM", iv }, cryptoKey, new TextEncoder().encode(JSON.stringify(obj)));
+  const all = new Uint8Array(12 + ct.byteLength); all.set(iv); all.set(new Uint8Array(ct), 12);
+  return b64(all);
+}
+async function dec(s) {
+  const all = unb64(s);
+  const pt = await crypto.subtle.decrypt({ name:"AES-GCM", iv: all.slice(0,12) }, cryptoKey, all.slice(12));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+/* ---------- purchase model: b = { split:bool, contribs:[{by}] } (amounts from older versions are ignored) ---------- */
+const norm = o => !o ? null
+  : o.contribs ? { split: !!o.split, contribs: o.contribs.map(c => ({ by: c.by })) }
+  : { split: false, contribs: [{ by: o.by }] };
+const has = (b, k) => b.contribs.some(c => c.by === k);
+const mem = k => members[k] || { key:k, name:"?", color:"#999999" };
+function gradient(b) {
+  const cs = b.contribs.map(c => mem(c.by).color);
+  if (cs.length === 1) return cs[0];
+  const w = 100 / cs.length;
+  return `linear-gradient(90deg,${cs.map((c, k) => `${c} ${k*w}% ${(k+1)*w}%`).join(",")})`;
+}
+
+/* ---------- data ---------- */
+async function load() {
+  const d = await api("list");
+  members = Object.fromEntries(d.members.map(m => [m.key, m]));
+  checkBlob = d.check;
+  items = await Promise.all(d.items.map(async i => {
+    let b = null;
+    if (i.bought) { try { b = norm(await dec(i.bought)); } catch(e) { b = null; } }
+    return { ...i, b };
+  }));
+  if (me && members[me.key]) me = members[me.key];
+}
+async function passcodeOk() {
+  if (!checkBlob) return true;                         // first ever user sets it
+  try { return (await dec(checkBlob)) === "xmas"; } catch(e) { return false; }
+}
+
+/* ---------- login ---------- */
+function renderLogin() {
+  const taken = new Set(Object.values(members).map(m => m.color));
+  root.innerHTML = `
+  <div class="login">
+    <h1>🎄 Family Christmas Lists</h1>
+    <form id="lf">
+      <div class="row"><input type="text" id="nm" placeholder="Your name (e.g. Alistair)" value="${esc(pendingName||"")}" autocomplete="off" required></div>
+      <div class="row"><input type="password" id="pc" placeholder="Family passcode" value="${esc(passcode)}" required></div>
+      ${pendingName ? `
+        <p>New here, <b>${esc(pendingName)}</b>! Pick your colour:</p>
+        <div class="swatches">${PALETTE.map(([c,n]) => `<div class="swatch ${taken.has(c)?"taken":""} ${pendingColor===c?"sel":""}" data-c="${c}" title="${n}${taken.has(c)?" (taken)":""}" style="background:${c}"></div>`).join("")}</div>` : ""}
+      ${loginErr ? `<div class="err">${esc(loginErr)}</div>` : ""}
+      <button class="primary" type="submit" ${busy?"disabled":""}>${pendingName ? "Join" : "Continue"}</button>
+    </form>
+    <p class="hint">⏳ This app can be slow (a few seconds per click). Please don't double-click or refresh while it's working.</p>
+    <p class="hint">The first person to sign in chooses the passcode; everyone else must use the same one. It scrambles who-is-buying-what so it can't be read in the spreadsheet.</p>
+  </div>`;
+  root.querySelectorAll(".swatch:not(.taken)").forEach(el => el.onclick = () => {
+    passcode = document.getElementById("pc").value; pendingName = document.getElementById("nm").value.trim(); pendingColor = el.dataset.c; renderLogin();
+  });
+  document.getElementById("lf").onsubmit = async e => {
+    e.preventDefault();
+    if (busy) return;
+    const raw = document.getElementById("nm").value.trim();
+    passcode = document.getElementById("pc").value;
+    if (!raw || !passcode) return;
+    loginErr = ""; busy = true;
+    try {
+      const key = keyOf(raw);
+      if (pendingName && keyOf(pendingName) !== key) { pendingName = null; pendingColor = null; }
+      cryptoKey = await deriveKey(passcode);
+      await load();
+      if (!(await passcodeOk())) { loginErr = "Wrong family passcode."; busy = false; return renderLogin(); }
+      if (members[key]) { busy = false; return signIn(members[key]); }
+      if (!pendingName) { pendingName = raw; busy = false; return renderLogin(); }
+      if (!pendingColor) { loginErr = "Pick a colour first."; busy = false; return renderLogin(); }
+      const row = { key, name: raw, color: pendingColor };
+      const r = await api("join", row);
+      if (!r.ok) { loginErr = r.error === "taken" ? "That name or colour was just taken, try again." : (r.error || "Error"); pendingColor = null; await load(); busy = false; return renderLogin(); }
+      members[key] = row; busy = false; signIn(row);
+    } catch (err) { loginErr = "Couldn't connect: " + err.message; busy = false; renderLogin(); }
+  };
+}
+async function signIn(m) {
+  me = m; pendingName = pendingColor = null;
+  localStorage.setItem("xmasUser", m.key); localStorage.setItem("xmasPass", passcode);
+  if (!checkBlob) { try { await api("setCheck", { check: await enc("xmas") }); } catch(e){} }
+  render();
+}
+function signOut() { localStorage.removeItem("xmasUser"); localStorage.removeItem("xmasPass"); me = null; passcode = ""; renderLogin(); }
+
+/* ---------- views ---------- */
+function render() {
+  if (!me) return renderLogin();
+  root.innerHTML = `
+  <header>
+    <h1>🎄 Family Christmas Lists</h1>
+    <div class="who"><span class="dot" style="background:${me.color}"></span>${esc(me.name)} <button class="link" id="so">switch</button></div>
+  </header>
+  <main>
+    <div class="notice">⏳ This can be slow: each click may take a few seconds to save. Please don't click things twice quickly, and don't refresh the page while it's working.</div>
+    <nav>
+      <button data-v="others" class="${view==="others"?"active":""}">Everyone's lists</button>
+      <button data-v="mine" class="${view==="mine"?"active":""}">My list</button>
+      <button data-v="spent" class="${view==="spent"?"active":""}">My purchases</button>
+    </nav>
+    <div id="view"></div>
+  </main>`;
+  document.getElementById("so").onclick = signOut;
+  root.querySelectorAll("nav button").forEach(b => b.onclick = () => { view = b.dataset.v; render(); });
+  const v = document.getElementById("view");
+  v.innerHTML = view==="others" ? othersHTML() : view==="mine" ? mineHTML() : spentHTML();
+  bind();
+}
+
+function othersHTML() {
+  const others = Object.values(members).filter(m => m.key !== me.key).sort((a,b)=>a.name.localeCompare(b.name));
+  if (!others.length) return `<p class="empty">Nobody else has joined yet. Share this page with the family!</p>`;
+  return others.map(m => {
+    const list = items.filter(i => i.owner === m.key);
+    return `<div class="card">
+      <h2 style="background:${m.color};color:${textOn(m.color)}">${esc(m.name)}'s list</h2>
+      <div class="body">${list.length ? list.map(itemHTML).join("") : `<div class="empty">Nothing added yet.</div>`}</div>
+    </div>`;
+  }).join("");
+}
+function itemHTML(i) {
+  const b = i.b;
+  const body = `${linkify(i.text)}${i.note ? `<div class="note">${esc(i.note)}</div>` : ""}`;
+  if (!b) return `<div class="item">
+    <input type="checkbox" data-buy="${i.id}" aria-label="I'm buying this">
+    <div class="txt">${body}<label class="splitlbl"><input type="checkbox" data-split="${i.id}"> Split with others</label></div></div>`;
+  if (!b.split) {
+    const buyer = mem(b.contribs[0].by), mine = buyer.key === me.key;
+    return `<div class="item bought" style="background:${buyer.color};color:${textOn(buyer.color)}">
+      <input type="checkbox" data-buy="${i.id}" checked ${mine ? "" : "disabled"}>
+      <div class="txt">${body}<div class="by">Bought by ${esc(buyer.name)}</div>
+      ${mine ? `<label class="splitlbl"><input type="checkbox" data-split="${i.id}"> Split with others</label>` : ""}</div></div>`;
+  }
+  const inSplit = has(b, me.key), sole = inSplit && b.contribs.length === 1;
+  const chips = b.contribs.map(c => { const m = mem(c.by); return `<span class="chip" style="background:${m.color};color:${textOn(m.color)}">${esc(m.name)}</span>`; }).join("");
+  const status = b.contribs.length > 1 ? `${b.contribs.length} people splitting this` : "Looking for others to split this";
+  const actions = inSplit
+    ? `<button class="mini" data-leave="${i.id}">Leave</button>
+       ${sole ? `<label class="splitlbl"><input type="checkbox" data-split="${i.id}" checked> Split</label>` : ""}`
+    : `<button class="mini" data-join="${i.id}">Join split</button>`;
+  return `<div class="item split" style="background:${gradient(b)}"><div class="splitbox">
+    <div class="txt">${body}</div><div>${chips}</div><div class="note">${status}</div>
+    <div class="srow">${actions}</div></div></div>`;
+}
+
+function mineHTML() {
+  const list = items.filter(i => i.owner === me.key);
+  const n = importDraft ? importDraft.items.length : 0;
+  const importUI = importDraft
+    ? `<div class="preview"><b>${n} item${n===1?"":"s"} found</b>
+        ${importDraft.skipped ? `<span class="hint"> (${importDraft.skipped} skipped: blank or duplicate)</span>` : ""}
+        ${importDraft.over ? `<div class="err">Only the first 100 will be added.</div>` : ""}
+        ${importDraft.items.map(t => `<div class="pitem">${linkify(t)}</div>`).join("")}
+        <div class="row" style="margin-top:8px"><button class="primary" id="impGo" type="button">Add ${n} item${n===1?"":"s"}</button><button class="mini" id="impCancel" type="button">Cancel</button></div>
+      </div>`
+    : `<textarea id="imp" rows="5" placeholder="Paste a list here, e.g. copied from Word. One item per line. Links and/or product names are fine, including 'Name – link' or a name with its link on the next line.">${esc(importText)}</textarea>
+       <div class="row" style="margin-top:8px"><button class="mini" id="impPrev" type="button">Preview items</button></div>`;
+  return `<div class="card">
+    <h2 style="background:${me.color};color:${textOn(me.color)}">My wish list</h2>
+    <div class="body">
+      <form id="addf">
+        <div class="row"><input type="text" id="itxt" placeholder="Paste a link, or type the item name" required></div>
+        <div class="row"><input type="text" id="inote" placeholder="Optional note (size, colour, …)"><button class="primary" type="submit">Add</button></div>
+      </form>
+      <p class="hint">Whether anything has been bought is never sent to you.</p>
+      <div class="sec">Paste a whole list</div>
+      ${importUI}
+      <div class="sec">Your items (${list.length})</div>
+      ${list.length ? list.map(i => `<div class="item"><div class="txt">${linkify(i.text)}${i.note?`<div class="note">${esc(i.note)}</div>`:""}</div><button class="danger" data-del="${i.id}" title="Remove">✕</button></div>`).join("") : `<div class="empty">Your list is empty.</div>`}
+    </div></div>`;
+}
+
+function spentHTML() {
+  const mine = items.filter(i => i.b && has(i.b, me.key));
+  if (!mine.length) return `<p class="empty">You haven't ticked anything yet. Go to "Everyone's lists" and tick what you're buying (or join a split).</p>`;
+  const byOwner = {};
+  mine.forEach(i => (byOwner[i.owner] ||= []).push(i));
+  return Object.keys(byOwner).filter(k => members[k]).sort((a,b) => members[a].name.localeCompare(members[b].name)).map(k => {
+    const m = members[k], list = byOwner[k];
+    return `<div class="card">
+      <h2 style="background:${m.color};color:${textOn(m.color)}">For ${esc(m.name)}</h2>
+      <div class="body">${list.map(i => {
+        const others = i.b.contribs.filter(x => x.by !== me.key).map(x => mem(x.by).name);
+        const info = i.b.split ? `<div class="note">Split${others.length ? " with " + esc(others.join(", ")) : " (no one else yet)"}</div>` : "";
+        return `<div class="item"><div class="txt">${linkify(i.text)}${info}</div></div>`;
+      }).join("")}</div>
+      <div class="total"><span>Items for ${esc(m.name)}</span><span>${list.length}</span></div>
+    </div>`;
+  }).join("");
+}
+
+/* ---------- events ---------- */
+async function refresh() { try { await load(); } catch(e) { alert("Connection problem: " + e.message); } render(); }
+
+// Read-modify-write on the encrypted blob, retrying if someone else changed it meanwhile.
+async function mutate(itemId, fn) {
+  for (let t = 0; t < 4; t++) {
+    const d = await api("list");
+    const raw = d.items.find(x => x.id === itemId);
+    if (!raw) throw new Error("That item no longer exists.");
+    const cur = raw.bought ? norm(await dec(raw.bought)) : null;
+    const next = fn(cur ? JSON.parse(JSON.stringify(cur)) : null);
+    const r = await api("setBought", { id: itemId, expected: raw.bought || "", next: next ? await enc(next) : "" });
+    if (!r.conflict) return;
+  }
+  throw new Error("Busy, please try again.");
+}
+async function run(id, fn) {
+  if (working) { render(); return; }
+  await guard(async () => {
+    try { await mutate(id, fn); } catch(e) { alert(e.message); }
+    await refresh();
+  });
+}
+
+const act = {
+  buy: cur => { if (cur) throw new Error("Someone just claimed that one."); return { split:false, contribs:[{ by:me.key }] }; },
+  unbuy: cur => (cur && !cur.split && cur.contribs[0].by === me.key) ? null : cur,
+  split: cur => {
+    if (!cur) return { split:true, contribs:[{ by:me.key }] };
+    if (!cur.split && cur.contribs[0].by === me.key) { cur.split = true; return cur; }
+    throw new Error("That item can't be split.");
+  },
+  unsplit: cur => { if (cur && cur.split && cur.contribs.length === 1 && cur.contribs[0].by === me.key) cur.split = false; return cur; },
+  join: cur => {
+    if (!cur || !cur.split) throw new Error("That split isn't open any more.");
+    if (!has(cur, me.key)) cur.contribs.push({ by:me.key });
+    return cur;
+  },
+  leave: cur => { if (!cur) return cur; cur.contribs = cur.contribs.filter(c => c.by !== me.key); return cur.contribs.length ? cur : null; }
+};
+
+async function doImport() {
+  const list = importDraft.items.map(text => ({ id: uid(), text, note: "" }));
+  await guard(async () => {
+    try {
+      try { await api("addItems", { items: list }); }
+      catch (e) {
+        // Older backend without bulk-add: fall back to one at a time.
+        if (!/Unknown action|Item not found/.test(e.message)) throw e;
+        for (let k = 0; k < list.length; k++) { setToast(`Adding item ${k+1} of ${list.length}…`); await api("addItem", list[k]); }
+      }
+      importDraft = null; importText = "";
+    } catch (e) { alert("Import failed: " + e.message + "\nSome items may have been added, so check your list before trying again."); }
+    await refresh();
+  }, `Adding ${list.length} item${list.length===1?"":"s"}…`);
+}
+
+function bind() {
+  const q = s => document.querySelectorAll(s);
+  q("[data-buy]").forEach(cb => cb.onchange = () => run(cb.dataset.buy, cb.checked ? act.buy : act.unbuy));
+  q("[data-split]").forEach(cb => cb.onchange = () => run(cb.dataset.split, cb.checked ? act.split : act.unsplit));
+  q("[data-join]").forEach(b => b.onclick = () => run(b.dataset.join, act.join));
+  q("[data-leave]").forEach(b => b.onclick = () => run(b.dataset.leave, act.leave));
+
+  const af = document.getElementById("addf");
+  if (af) af.onsubmit = async e => {
+    e.preventDefault();
+    const text = document.getElementById("itxt").value.trim();
+    const note = document.getElementById("inote").value.trim();
+    if (!text) return;
+    await guard(async () => {
+      try { await api("addItem", { id: uid(), text, note }); } catch(err) { alert(err.message); }
+      await refresh();
+    });
+  };
+  q("[data-del]").forEach(b => b.onclick = async () => {
+    if (!confirm("Remove this item?")) return;
+    await guard(async () => {
+      try { await api("delItem", { id: b.dataset.del }); } catch(err) { alert(err.message); }
+      await refresh();
+    });
+  });
+
+  const imp = document.getElementById("imp");
+  if (imp) imp.oninput = () => { importText = imp.value; };
+  const prev = document.getElementById("impPrev");
+  if (prev) prev.onclick = () => {
+    importText = imp.value;
+    const d = parseList(importText, items.filter(i => i.owner === me.key).map(i => i.text));
+    if (!d.items.length) { alert("Couldn't find any new items in that text."); return; }
+    importDraft = d; render();
+  };
+  const go = document.getElementById("impGo");
+  if (go) go.onclick = doImport;
+  const cancel = document.getElementById("impCancel");
+  if (cancel) cancel.onclick = () => { importDraft = null; render(); };
+}
+
+/* ---------- boot ---------- */
+(async function () {
+  if (API_URL.startsWith("PASTE")) { root.innerHTML = `<p class="err" style="padding:20px">Set API_URL at the top of the script first.</p>`; return; }
+  const savedUser = localStorage.getItem("xmasUser"), savedPass = localStorage.getItem("xmasPass");
+  try {
+    if (savedUser && savedPass) {
+      passcode = savedPass; cryptoKey = await deriveKey(passcode);
+      await load();
+      if (members[savedUser] && await passcodeOk()) { me = members[savedUser]; return render(); }
+    } else { await load().catch(()=>{}); }
+  } catch (e) { /* fall through to login */ }
+  renderLogin();
+})();
+// background refresh (only once signed in, and never while an action or typing is in progress):
+setInterval(async () => {
+  const a = document.activeElement;
+  if (!me || !cryptoKey || working || (a && ((a.tagName === "INPUT" && a.type !== "checkbox") || a.tagName === "TEXTAREA"))) return;
+  try { await load(); if (!working) render(); } catch(e){}
+}, 15000);
+</script>
+</body>
+</html>
