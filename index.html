@@ -25,8 +25,13 @@
   .item .txt { flex:1; min-width:0; word-break:break-word; }
   .item .note { font-size:.85rem; opacity:.8; }
   .item .by { font-size:.8rem; font-weight:600; margin-top:2px; }
-  .item a { color:inherit; text-decoration:underline; }
+  .item a { color:#1d4ed8; text-decoration:underline; }
+  .item .ititle { font-size:1.2rem; font-weight:700; color:#111; line-height:1.3; }
+  .item .opt { margin-top:3px; }
+  .item .or { font-size:1.15rem; font-weight:800; color:#111; margin-left:4px; }
+  .item.bought .or { color:inherit; }
   .item.bought { border-color:transparent; }
+  .item.bought a, .item.bought .ititle { color:inherit; }
   .item.split { display:block; padding:6px; border:0; }
   .splitbox { background:rgba(255,255,255,.94); color:var(--text); border-radius:6px; padding:8px 10px; }
   .splitbox a { color:inherit; }
@@ -102,6 +107,19 @@ function linkify(t) {
     last = idx + u.length; return u;
   });
   return out + esc(s.slice(last));
+}
+// Item layout: "Title – option | option | …" shows the title big and bold,
+// then each option on its own line ("Name £price (Shop): link").
+// Text without " – " or " | " is shown as before.
+function itemBody(t) {
+  const s = String(t ?? "").trim();
+  const cut = s.indexOf(" – ");
+  let title = "", rest = s;
+  if (cut > 0 && !/https?:\/\//i.test(s.slice(0, cut))) { title = s.slice(0, cut).trim(); rest = s.slice(cut + 3).trim(); }
+  const opts = rest.split(/\s+\|\s+|\s+\|$/).map(x => x.trim()).filter(Boolean);
+  if (!title && opts.length < 2) return linkify(s);
+  return (title ? `<div class="ititle">${esc(title)}</div>` : "") +
+    opts.map((o, k) => `<div class="opt">${linkify(o)}${k < opts.length - 1 ? ` <b class="or">OR</b>` : ""}</div>`).join("");
 }
 // Turns pasted text (e.g. copied from Word) into one item per entry.
 function parseList(raw, existing) {
@@ -287,7 +305,7 @@ function othersHTML() {
 }
 function itemHTML(i) {
   const b = i.b;
-  const body = `${linkify(i.text)}${i.note ? `<div class="note">${esc(i.note)}</div>` : ""}`;
+  const body = `${itemBody(i.text)}${i.note ? `<div class="note">${esc(i.note)}</div>` : ""}`;
   if (!b) return `<div class="item">
     <input type="checkbox" data-buy="${i.id}" aria-label="I'm buying this">
     <div class="txt">${body}<label class="splitlbl"><input type="checkbox" data-split="${i.id}"> Split with others</label></div></div>`;
@@ -333,7 +351,7 @@ function mineHTML() {
       <div class="sec">Paste a whole list</div>
       ${importUI}
       <div class="sec">Your items (${list.length})</div>
-      ${list.length ? list.map(i => `<div class="item"><div class="txt">${linkify(i.text)}${i.note?`<div class="note">${esc(i.note)}</div>`:""}</div><button class="danger" data-del="${i.id}" title="Remove">✕</button></div>`).join("") : `<div class="empty">Your list is empty.</div>`}
+      ${list.length ? list.map(i => `<div class="item"><div class="txt">${itemBody(i.text)}${i.note?`<div class="note">${esc(i.note)}</div>`:""}</div><button class="danger" data-del="${i.id}" title="Remove">✕</button></div>`).join("") : `<div class="empty">Your list is empty.</div>`}
     </div></div>`;
 }
 
@@ -349,7 +367,7 @@ function spentHTML() {
       <div class="body">${list.map(i => {
         const others = i.b.contribs.filter(x => x.by !== me.key).map(x => mem(x.by).name);
         const info = i.b.split ? `<div class="note">Split${others.length ? " with " + esc(others.join(", ")) : " (no one else yet)"}</div>` : "";
-        return `<div class="item"><div class="txt">${linkify(i.text)}${info}</div></div>`;
+        return `<div class="item"><div class="txt">${itemBody(i.text)}${info}</div></div>`;
       }).join("")}</div>
       <div class="total"><span>Items for ${esc(m.name)}</span><span>${list.length}</span></div>
     </div>`;
