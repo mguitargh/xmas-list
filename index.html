@@ -48,6 +48,9 @@
   button.danger { background:none; border:0; color:#b91c1c; cursor:pointer; font-size:1.1rem; padding:0 4px; }
   button.link { background:none; border:0; color:#fff; text-decoration:underline; cursor:pointer; font:inherit; }
   .row { display:flex; gap:8px; margin-bottom:8px; }
+  #addf.editing { background:#fffbeb; border:1px solid #f1d98a; border-radius:10px; padding:4px 10px 2px; }
+  .item .mini { flex:none; }
+  .pitem.item { display:block; }
   .flbl { display:block; font-weight:600; font-size:.9rem; margin:4px 0 4px; }
   .optrow { align-items:center; flex-wrap:wrap; }
   .optrow input { flex:1 1 180px; min-width:0; }
@@ -90,19 +93,49 @@ const root = document.getElementById("root");
 let me = null, members = {}, items = [], cryptoKey = null, passcode = "", checkBlob = "";
 let view = "others", pendingName = null, pendingColor = null, loginErr = "", busy = false;
 let working = false, importText = "", importDraft = null;
+let features = [];          // optional server actions, e.g. "editItem"
 // Structured "add item" form on My list: one title, any number of options, one note.
-const newDraft = () => ({ title:"", note:"", opts:[{ model:"", link:"" }] });
+// editId is set when the form is editing an existing item instead of adding one.
+const newDraft = () => ({ title:"", note:"", opts:[{ model:"", link:"" }], editId:null });
 let draft = newDraft();
 const SHOPS = [[/amazon\./,"Amazon UK"],[/ebay\./,"eBay"],[/vinted\./,"Vinted"],[/webuy\.|cex\./,"CeX"],[/argos\./,"Argos"],[/currys\./,"Currys"],[/andertons\./,"Andertons"]];
 // Builds one option as "Model (Shop): link", matching how the existing items are written.
+// If the model already ends in "(…)" (e.g. "£165 (Vinted, accepts offers)") it is kept as is.
 function optionText(model, link) {
-  model = String(model || "").trim().replace(/\s+\|\s+/g, ", ");
+  model = String(model || "").trim().replace(/\s+\|\s+/g, ", ").replace(/[\s\-–—:|,]+$/, "");
   link = String(link || "").trim();
   if (link && !/^https?:\/\//i.test(link)) link = "https://" + link;
   if (!link) return model;
   const host = hostOf(link);
   const shop = (SHOPS.find(([re]) => re.test(host)) || [null, host])[1];
-  return `${model || "Option"} (${shop}): ${link}`;
+  if (!model) return `${shop}: ${link}`;
+  return /\)$/.test(model) ? `${model}: ${link}` : `${model} (${shop}): ${link}`;
+}
+// Builds a whole item: "Title – option | option".
+function itemText(title, opts) {
+  title = String(title || "").trim().replace(/\s+[–|]\s+/g, ", ");
+  opts = opts.filter(Boolean);
+  return opts.length ? `${title} – ${opts.join(" | ")}` : title;
+}
+// Splits a saved item back into title + options for the edit form.
+function itemToDraft(i) {
+  const s = String(i.text || "").trim();
+  const cut = s.indexOf(" – ");
+  let title = s, rest = "";
+  if (cut > 0 && !/https?:\/\//i.test(s.slice(0, cut))) { title = s.slice(0, cut).trim(); rest = s.slice(cut + 3).trim(); }
+  const opts = rest.split(/\s+\|\s+|\s+\|$/).map(x => x.trim()).filter(Boolean).map(o => {
+    URL_RE.lastIndex = 0;
+    const m = URL_RE.exec(o);
+    if (!m) return { model: o, link: "" };
+    let model = o.slice(0, m.index).replace(/[\s:]+$/, "");
+    // Drop a plain "(Shop)" that optionText would add back; keep "(Shop, notes…)".
+    const host = hostOf(m[0]);
+    const shop = (SHOPS.find(([re]) => re.test(host)) || [null, host])[1];
+    if (model === shop) model = "";
+    else if (model.endsWith(` (${shop})`)) model = model.slice(0, -(shop.length + 3));
+    return { model, link: m[0] };
+  });
+  return { title, note: i.note || "", opts: opts.length ? opts : [{ model:"", link:"" }], editId: i.id };
 }
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -139,21 +172,59 @@ function itemBody(t) {
   return (title ? `<div class="ititle">${esc(title)}</div>` : "") +
     opts.map((o, k) => `<div class="opt">${linkify(o)}${k < opts.length - 1 ? ` <b class="or">OR</b>` : ""}</div>`).join("");
 }
-// Turns pasted text (e.g. copied from Word) into one item per entry.
+// Turns pasted text (e.g. copied from Word) into items in the same format as the form:
+//  - A line without a link starts an item (its title).
+//  - Lines with links under it become its options ("Model (Shop): link").
+//  - Indented or bulleted lines without links under a title also become options.
+//  - A single line with a name and a link becomes one item with that link.
+//  - A line already written as "Title – option | option" is kept as one item.
 function parseList(raw, existing) {
   const bullet = /^(?:[-*•▪◦●○‣·]|\d{1,3}[.)]|\(\d{1,3}\)|\[[ xX]?\]|[☐☑✓✔])\s+/;
   const lines = String(raw || "").replace(/[\u200b\ufeff]/g, "").split(/\r?\n|\u2028|\u2029/)
-    .map(l => l.trim().replace(bullet, "").replace(/\t+/g, " – ").replace(/\s+/g, " ").trim()
-      .replace(/(^|\s)(www\.\S+)/gi, "$1https://$2"))
-    .filter(Boolean);
-  const hasUrl = l => { URL_RE.lastIndex = 0; return URL_RE.test(l); };
-  const urlOnly = l => hasUrl(l) && l.replace(URL_RE, "").replace(/[\s\-–—:|,()]/g, "") === "";
+    .map(l => {
+      const sub = /^[ \t ]+\S/.test(l), bul = bullet.test(l.trim());
+      const t = l.trim().replace(bullet, "").replace(/\t+/g, " – ").replace(/\s+/g, " ").trim()
+        .replace(/(^|\s)(www\.\S+)/gi, "$1https://$2")
+        .replace(/(https?:\/\/\S*[^\s.,;:!?)\]])[.,;:]+(?=\s|$)/gi, "$1");
+      return { t, sub, bul };
+    })
+    .filter(l => l.t);
+  const urls = s => { URL_RE.lastIndex = 0; return s.match(URL_RE) || []; };
+  // "Name £x https://a" or "Name – https://a, Other https://b" → formatted options
+  const lineOpts = s => {
+    const out = []; let last = 0, m;
+    URL_RE.lastIndex = 0;
+    while ((m = URL_RE.exec(s))) { out.push(optionText(s.slice(last, m.index), m[0])); last = m.index + m[0].length; }
+    return out;
+  };
+  const groups = []; let cur = null;
+  const close = () => { if (cur) groups.push(cur); cur = null; };
+  for (const { t, sub, bul } of lines) {
+    const u = urls(t);
+    const dash = t.indexOf(" – ");
+    if (u.length && dash > 0 && !urls(t.slice(0, dash)).length && / \| /.test(t)) {
+      close();   // already "Title – option | option"
+      groups.push({ title: t.slice(0, dash), opts: t.slice(dash + 3).split(/\s+\|\s+/).map(o => lineOpts(o)[0] || o.trim()) });
+    } else if (u.length) {
+      if (cur) cur.opts.push(...lineOpts(t));
+      else {
+        const name = t.slice(0, t.indexOf(u[0])).replace(/[\s\-–—:|,]+$/, "");
+        if (name && u.length === 1) groups.push({ title: name, opts: [optionText("", u[0])] });
+        else groups.push({ title: name || hostOf(u[0]), opts: lineOpts(t) });
+      }
+    } else if (cur && (sub || (bul && !cur.bul))) {
+      cur.opts.push(t);   // option without a link
+    } else if (dash > 0) {
+      close(); groups.push({ title: t.slice(0, dash), opts: t.slice(dash + 3).split(/\s+\|\s+/) });   // "Book – The Hobbit"
+    } else {
+      close(); cur = { title: t, opts: [], bul };
+    }
+  }
+  close();
   const seen = new Set((existing || []).map(x => x.trim().toLowerCase()));
   const out = []; let skipped = 0;
-  for (let i = 0; i < lines.length; i++) {
-    let t = lines[i];
-    if (!hasUrl(t) && i + 1 < lines.length && urlOnly(lines[i + 1])) { t = t + " – " + lines[i + 1]; i++; }
-    t = t.replace(/(https?:\/\/\S*[^\s.,;:!?)\]])[.,;:]+$/i, "$1").slice(0, 500);
+  for (const g of groups) {
+    const t = itemText(g.title, g.opts);
     const k = t.toLowerCase();
     if (t.length < 2 || seen.has(k)) { skipped++; continue; }
     seen.add(k); out.push(t);
@@ -222,6 +293,7 @@ async function load() {
   const d = await api("list");
   members = Object.fromEntries(d.members.map(m => [m.key, m]));
   checkBlob = d.check;
+  features = Array.isArray(d.features) ? d.features : [];
   items = await Promise.all(d.items.map(async i => {
     let b = null;
     if (i.bought) { try { b = norm(await dec(i.bought)); } catch(e) { b = null; } }
@@ -353,15 +425,16 @@ function mineHTML() {
     ? `<div class="preview"><b>${n} item${n===1?"":"s"} found</b>
         ${importDraft.skipped ? `<span class="hint"> (${importDraft.skipped} skipped: blank or duplicate)</span>` : ""}
         ${importDraft.over ? `<div class="err">Only the first 100 will be added.</div>` : ""}
-        ${importDraft.items.map(t => `<div class="pitem">${linkify(t)}</div>`).join("")}
+        ${importDraft.items.map(t => `<div class="pitem item">${itemBody(t)}</div>`).join("")}
         <div class="row" style="margin-top:8px"><button class="primary" id="impGo" type="button">Add ${n} item${n===1?"":"s"}</button><button class="mini" id="impCancel" type="button">Cancel</button></div>
       </div>`
-    : `<textarea id="imp" rows="5" placeholder="Paste a list here, e.g. copied from Word. One item per line. Links and/or product names are fine, including 'Name – link' or a name with its link on the next line.">${esc(importText)}</textarea>
+    : `<textarea id="imp" rows="5" placeholder="Paste a list, e.g. from Word. Put each item's name on its own line, with its links on the lines underneath.">${esc(importText)}</textarea>
        <div class="row" style="margin-top:8px"><button class="mini" id="impPrev" type="button">Preview items</button></div>`;
   return `<div class="card">
     <h2 style="background:${me.color};color:${textOn(me.color)}">My wish list</h2>
     <div class="body">
-      <form id="addf">
+      <form id="addf" class="${draft.editId ? "editing" : ""}">
+        ${draft.editId ? `<div class="sec" style="margin-top:4px">Editing item</div>` : ""}
         <label class="flbl" for="ititle">Item</label>
         <div class="row"><input type="text" id="ititle" placeholder="e.g. 3D printer" value="${esc(draft.title)}" required></div>
         <label class="flbl">Model or option, and its link</label>
@@ -372,14 +445,14 @@ function mineHTML() {
           ${draft.opts.length > 1 ? `<button type="button" class="danger" data-optdel="${k}" title="Remove this option">✕</button>` : ""}
         </div>`).join("")}
         <div class="row"><button type="button" class="plus" id="optAdd">+ Add another option</button></div>
-        <div class="row"><input type="text" id="inote" placeholder="Any notes (size, colour, which one you'd prefer…)" value="${esc(draft.note)}"></div>
-        <div class="row"><button class="primary" type="submit">Add to my list</button></div>
+        <div class="row"><textarea id="inote" rows="2" placeholder="Any notes (size, colour, which one you'd prefer…)">${esc(draft.note)}</textarea></div>
+        <div class="row"><button class="primary" type="submit">${draft.editId ? "Save changes" : "Add to my list"}</button>${draft.editId ? `<button class="mini" type="button" id="editCancel">Cancel</button>` : ""}</div>
       </form>
       <p class="hint">Whether anything has been bought is never sent to you.</p>
       <div class="sec">Paste a whole list</div>
       ${importUI}
       <div class="sec">Your items (${list.length})</div>
-      ${list.length ? list.map(i => `<div class="item"><div class="txt">${itemBody(i.text)}${i.note?`<div class="note">${esc(i.note)}</div>`:""}</div><button class="danger" data-del="${i.id}" title="Remove">✕</button></div>`).join("") : `<div class="empty">Your list is empty.</div>`}
+      ${list.length ? list.map(i => `<div class="item"><div class="txt">${itemBody(i.text)}${i.note?`<div class="note">${esc(i.note)}</div>`:""}</div>${features.includes("editItem") ? `<button class="mini" data-edit="${i.id}" title="Edit">Edit</button>` : ""}<button class="danger" data-del="${i.id}" title="Remove">✕</button></div>`).join("") : `<div class="empty">Your list is empty.</div>`}
     </div></div>`;
 }
 
@@ -477,20 +550,30 @@ function bind() {
     af.oninput = sync;
     document.getElementById("optAdd").onclick = () => { sync(); draft.opts.push({ model:"", link:"" }); render(); const m = q(".omodel"); m[m.length-1].focus(); };
     q("[data-optdel]").forEach(b => b.onclick = () => { sync(); draft.opts.splice(+b.dataset.optdel, 1); render(); });
+    const ec = document.getElementById("editCancel");
+    if (ec) ec.onclick = () => { draft = newDraft(); render(); };
     af.onsubmit = async e => {
       e.preventDefault();
       sync();
-      const title = draft.title.trim().replace(/\s+[–|]\s+/g, ", ");
-      const opts = draft.opts.map(o => optionText(o.model, o.link)).filter(Boolean);
-      if (!title) return;
-      const text = opts.length ? `${title} – ${opts.join(" | ")}` : title;
+      if (!draft.title.trim()) return;
+      const text = itemText(draft.title, draft.opts.map(o => optionText(o.model, o.link)));
       const note = draft.note.trim();
       await guard(async () => {
-        try { await api("addItem", { id: uid(), text, note }); draft = newDraft(); } catch(err) { alert(err.message); }
+        try {
+          if (draft.editId) await api("editItem", { id: draft.editId, text, note });
+          else await api("addItem", { id: uid(), text, note });
+          draft = newDraft();
+        } catch(err) { alert(err.message); }
         await refresh();
       });
     };
   }
+  q("[data-edit]").forEach(b => b.onclick = () => {
+    const it = items.find(i => i.id === b.dataset.edit);
+    if (!it) return;
+    draft = itemToDraft(it); render();
+    document.getElementById("addf").scrollIntoView({ behavior:"smooth", block:"start" });
+  });
   q("[data-del]").forEach(b => b.onclick = async () => {
     if (!confirm("Remove this item?")) return;
     await guard(async () => {
