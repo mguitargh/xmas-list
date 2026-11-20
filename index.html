@@ -48,6 +48,11 @@
   button.danger { background:none; border:0; color:#b91c1c; cursor:pointer; font-size:1.1rem; padding:0 4px; }
   button.link { background:none; border:0; color:#fff; text-decoration:underline; cursor:pointer; font:inherit; }
   .row { display:flex; gap:8px; margin-bottom:8px; }
+  .flbl { display:block; font-weight:600; font-size:.9rem; margin:4px 0 4px; }
+  .optrow { align-items:center; flex-wrap:wrap; }
+  .optrow input { flex:1 1 180px; min-width:0; }
+  button.plus { width:40px; height:40px; flex:none; border-radius:8px; border:0; background:#16a34a; color:#fff; font-size:1.4rem; line-height:1; cursor:pointer; }
+  button.help { width:22px; height:22px; flex:none; border-radius:50%; border:1px solid var(--muted); background:#fff; color:var(--muted); font-size:.75rem; font-weight:700; cursor:pointer; padding:0; }
   .total { display:flex; justify-content:space-between; padding:8px 14px; font-weight:600; border-top:1px solid var(--line); background:#faf9f5; }
   .sec { margin:14px 0 6px; font-weight:600; }
   .preview { border:1px dashed var(--line); border-radius:8px; padding:8px 10px; background:#faf9f5; }
@@ -86,6 +91,20 @@ const root = document.getElementById("root");
 let me = null, members = {}, items = [], cryptoKey = null, passcode = "", checkBlob = "";
 let view = "others", pendingName = null, pendingColor = null, loginErr = "", busy = false;
 let working = false, importText = "", importDraft = null;
+// Structured "add item" form on My list: one title, any number of options, one note.
+const newDraft = () => ({ title:"", note:"", help:false, opts:[{ model:"", link:"" }] });
+let draft = newDraft();
+const SHOPS = [[/amazon\./,"Amazon UK"],[/ebay\./,"eBay"],[/vinted\./,"Vinted"],[/webuy\.|cex\./,"CeX"],[/argos\./,"Argos"],[/currys\./,"Currys"],[/andertons\./,"Andertons"]];
+// Builds one option as "Model (Shop): link", matching how the existing items are written.
+function optionText(model, link) {
+  model = String(model || "").trim().replace(/\s+\|\s+/g, ", ");
+  link = String(link || "").trim();
+  if (link && !/^https?:\/\//i.test(link)) link = "https://" + link;
+  if (!link) return model;
+  const host = hostOf(link);
+  const shop = (SHOPS.find(([re]) => re.test(host)) || [null, host])[1];
+  return `${model || "Option"} (${shop}): ${link}`;
+}
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const keyOf = n => n.trim().toLowerCase().replace(/\s+/g," ");
@@ -344,8 +363,21 @@ function mineHTML() {
     <h2 style="background:${me.color};color:${textOn(me.color)}">My wish list</h2>
     <div class="body">
       <form id="addf">
-        <div class="row"><input type="text" id="itxt" placeholder="Paste a link, or type the item name" required></div>
-        <div class="row"><input type="text" id="inote" placeholder="Optional note (size, colour, …)"><button class="primary" type="submit">Add</button></div>
+        <label class="flbl" for="ititle">Item</label>
+        <div class="row"><input type="text" id="ititle" placeholder="e.g. 3D printer" value="${esc(draft.title)}" required></div>
+        <label class="flbl">Model or option, and its link</label>
+        ${draft.opts.map((o, k) => `
+        <div class="row optrow">
+          <input type="text" class="omodel" data-k="${k}" placeholder="Model name, e.g. Anycubic Kobra 3 Max £221" value="${esc(o.model)}">
+          <input type="text" inputmode="url" class="olink" data-k="${k}" placeholder="Link (Amazon, eBay, Vinted…)" value="${esc(o.link)}">
+          ${k === draft.opts.length - 1
+            ? `<button type="button" class="plus" id="optAdd" title="Add another model or option">+</button>
+               <button type="button" class="help" id="optHelp" aria-label="Help" title="Click + to add another model or option for the item above">?</button>`
+            : `<button type="button" class="danger" data-optdel="${k}" title="Remove this option">✕</button>`}
+        </div>`).join("")}
+        ${draft.help ? `<div class="hint" style="margin:-4px 0 8px">Click + to add another model or option for the item above. They'll show with OR between them.</div>` : ""}
+        <div class="row"><input type="text" id="inote" placeholder="Any notes (size, colour, which one you'd prefer…)" value="${esc(draft.note)}"></div>
+        <div class="row"><button class="primary" type="submit">Add to my list</button></div>
       </form>
       <p class="hint">Whether anything has been bought is never sent to you.</p>
       <div class="sec">Paste a whole list</div>
@@ -439,16 +471,31 @@ function bind() {
   q("[data-leave]").forEach(b => b.onclick = () => run(b.dataset.leave, act.leave));
 
   const af = document.getElementById("addf");
-  if (af) af.onsubmit = async e => {
-    e.preventDefault();
-    const text = document.getElementById("itxt").value.trim();
-    const note = document.getElementById("inote").value.trim();
-    if (!text) return;
-    await guard(async () => {
-      try { await api("addItem", { id: uid(), text, note }); } catch(err) { alert(err.message); }
-      await refresh();
-    });
-  };
+  if (af) {
+    const sync = () => {
+      draft.title = document.getElementById("ititle").value;
+      draft.note = document.getElementById("inote").value;
+      q(".omodel").forEach(el => draft.opts[+el.dataset.k].model = el.value);
+      q(".olink").forEach(el => draft.opts[+el.dataset.k].link = el.value);
+    };
+    af.oninput = sync;
+    document.getElementById("optAdd").onclick = () => { sync(); draft.opts.push({ model:"", link:"" }); render(); const m = q(".omodel"); m[m.length-1].focus(); };
+    document.getElementById("optHelp").onclick = () => { sync(); draft.help = !draft.help; render(); };
+    q("[data-optdel]").forEach(b => b.onclick = () => { sync(); draft.opts.splice(+b.dataset.optdel, 1); render(); });
+    af.onsubmit = async e => {
+      e.preventDefault();
+      sync();
+      const title = draft.title.trim().replace(/\s+[–|]\s+/g, ", ");
+      const opts = draft.opts.map(o => optionText(o.model, o.link)).filter(Boolean);
+      if (!title) return;
+      const text = opts.length ? `${title} – ${opts.join(" | ")}` : title;
+      const note = draft.note.trim();
+      await guard(async () => {
+        try { await api("addItem", { id: uid(), text, note }); draft = newDraft(); } catch(err) { alert(err.message); }
+        await refresh();
+      });
+    };
+  }
   q("[data-del]").forEach(b => b.onclick = async () => {
     if (!confirm("Remove this item?")) return;
     await guard(async () => {
