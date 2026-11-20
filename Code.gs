@@ -1,12 +1,11 @@
 /**
  * Family Christmas Lists - Google Apps Script backend.
- * Paste into a Google Sheet: Extensions > Apps Script. Then Deploy > Manage deployments >
- * edit (pencil) > Version: New version > Deploy, so the web app URL stays the same.
+ * Paste into Apps Script (standalone project). Then Deploy > Manage deployments > pencil > New version.
  *   Execute as: Me | Who has access: Anyone
  *
  * Privacy:
  *  - For any item you own, the server never sends you the "bought" column.
- *  - The "bought" column is AES-encrypted in the browser with a family
+ *  - The "bought" column (who is buying / splitting) is AES-encrypted in the browser with a family
  *    passcode that is never stored here, so opening the Sheet shows only gibberish.
  */
 const SS = SpreadsheetApp.openById("1HLiF_IAmb6K_rWB8iK6Ho9AGKAsSziNeLZfB0FYMP8M");
@@ -100,9 +99,14 @@ function handle_(r) {
     return { ok: true };
   }
 
+  // Bulk add (pasted lists): one write for up to 100 items.
   if (r.action === 'addItems') {
-    const list = Array.isArray(r.items) ? r.items.slice(0, 100) : [];
-    list.forEach(it => append_('Items', { id: it.id, owner: r.me, text: it.text, note: it.note || '', bought: '', created: new Date().toISOString() }));
+    const list = (Array.isArray(r.items) ? r.items : []).slice(0, 100).filter(it => it && it.id && it.text);
+    if (!list.length) return { ok: true, added: 0 };
+    const now = new Date().toISOString();
+    const rng = tab_('Items').getRange(tab_('Items').getLastRow() + 1, 1, list.length, H.Items.length);
+    rng.setNumberFormat('@');
+    rng.setValues(list.map(it => [String(it.id), r.me, String(it.text).slice(0, 5000), String(it.note || '').slice(0, 2000), '', now]));
     return { ok: true, added: list.length };
   }
 
